@@ -1,13 +1,15 @@
 package ax.nd.faceunlock
 
 object Constants {
-    // Actions must match the BroadcastReceiver you added to SystemUI via Smali
-    const val ACTION_UNLOCK_DEVICE = "ax.nd.universalauth.UNLOCK_DEVICE"
-    const val ACTION_EARLY_UNLOCK = "ax.nd.universalauth.EARLY_UNLOCK"
+    // FIXED: Updated to match the lowercase/hyphenated strings in FaceUnlockReceiver.smali
+    const val ACTION_UNLOCK_DEVICE = "ax.nd.universalauth.unlock-device"
     
     // Extras
-    const val EXTRA_UNLOCK_MODE = "ax.nd.universalauth.extra.UNLOCK_MODE"
-    const val EXTRA_BYPASS_KEYGUARD = "ax.nd.universalauth.extra.BYPASS_KEYGUARD"
+    const val EXTRA_UNLOCK_MODE = "ax.nd.universalauth.unlock-device.unlock-mode"
+    const val EXTRA_BYPASS_KEYGUARD = "ax.nd.universalauth.unlock-device.bypass-keyguard"
+
+    // Early Unlock (Optional, keeping naming convention consistent if you use it)
+    const val ACTION_EARLY_UNLOCK = "ax.nd.universalauth.EARLY_UNLOCK"
     const val EXTRA_EARLY_UNLOCK_MODE = "ax.nd.universalauth.extra.EARLY_UNLOCK_MODE"
 
     // Permissions

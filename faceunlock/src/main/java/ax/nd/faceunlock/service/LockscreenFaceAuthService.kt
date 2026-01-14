@@ -20,7 +20,6 @@ import android.view.ViewPropertyAnimator
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.TextView
-import androidx.core.content.getSystemService
 import ax.nd.faceunlock.Constants
 import ax.nd.faceunlock.FaceApplication
 import ax.nd.faceunlock.LibManager
@@ -76,9 +75,9 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
 
         controller = FaceAuthServiceController(this, prefs, this)
 
-        windowManager = getSystemService()
-        keyguardManager = getSystemService()
-        displayManager = getSystemService()
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         handler = Handler(Looper.getMainLooper())
 
         textView = TextView(this)
@@ -152,13 +151,11 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
     }
 
     private fun registerEarlyUnlockReceiver() {
-        // Updated to use local Constant
         val intentFilter = IntentFilter().apply {
             addAction(Constants.ACTION_EARLY_UNLOCK)
         }
         lockStateReceiver = object : BroadcastReceiver() {
             override fun onReceive(p0: Context?, p1: Intent) {
-                // Updated to use local Constant
                 val mode = p1.getBooleanExtra(Constants.EXTRA_EARLY_UNLOCK_MODE, false)
                 if(mode) {
                     show()
@@ -167,8 +164,6 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
                 }
             }
         }
-        // Note: RECEIVER_EXPORTED (0x2) is required for Android 14+ if not system signature, 
-        // though typically this service runs as user app. Ensure compileSdk handles this constant.
         registerReceiver(lockStateReceiver, intentFilter, RECEIVER_EXPORTED)
     }
 
@@ -183,9 +178,8 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         super.onServiceConnected()
 
         if(!LibManager.libsLoaded.get()) {
-            // Libs not loaded, abort
             Log.w(TAG, "Libs not loaded, disabling self...")
-            disableSelf() // This doesn't work in onCreate
+            disableSelf()
             return
         }
     }
@@ -199,7 +193,6 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         serviceJob.cancel()
     }
 
-    // Broadcast receiver isn't 100% accurate
     private fun doubleCheckLockscreenState() {
         val mainDisplayOn = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)?.state == Display.STATE_ON
 
@@ -214,11 +207,14 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         if(!active) {
             if(Util.isFaceUnlockEnrolled(this)) {
                 active = true
-                // If animation is currently playing, we need to fire it's end listener
                 if(showStatusText) {
                     textViewAnimator?.cancel()
                     textView?.text = "Looking for face..."
-                    windowManager?.addView(textView, params)
+                    try {
+                        windowManager?.addView(textView, params)
+                    } catch (e: Exception) {
+                        // Handle view already added or similar race conditions
+                    }
                 }
                 startTime = System.currentTimeMillis()
                 controller?.start()
@@ -231,7 +227,6 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
             active = false
             if(showStatusText) {
                 if (delay > 0) {
-                    // Delayed hide is animated
                     textViewAnimator = textView?.animate()
                         ?.alpha(0f)
                         ?.setListener(object : Animator.AnimatorListener {
@@ -251,14 +246,12 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         } else {
             if(showStatusText) {
                 if (delay == 0) {
-                    // If hide animation is running, skip it
                     textViewAnimator?.cancel()
                 }
             }
         }
     }
 
-    // Should reset textview to the state it was in before animation started playing
     private fun onTextViewAnimationEnd() {
         removeTextViewFromWindowManager()
         textViewAnimator?.cancel()
@@ -267,11 +260,14 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
     }
 
     private fun removeTextViewFromWindowManager() {
-        windowManager?.removeView(textView)
+        try {
+            windowManager?.removeView(textView)
+        } catch (e: Exception) {
+            // View might already be removed
+        }
     }
 
     override fun onAccessibilityEvent(p0: AccessibilityEvent?) {
-        // No need for these events
     }
 
     override fun onInterrupt() {
@@ -279,32 +275,27 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
 
     override fun onAuthed() {
         Log.d("MeasureFaceUnlock", "Total time: " + (System.currentTimeMillis() - startTime))
-        // Tell the System to unlock device (Via the Smali hook)
+        
+        // --- UPDATED LOGIC ---
         val unlockAnimation = when(FaceApplication.getApp().prefs.unlockAnimation.get()) {
             "mode_wake_and_unlock" -> Constants.MODE_WAKE_AND_UNLOCK
             "mode_wake_and_unlock_pulsing" -> Constants.MODE_WAKE_AND_UNLOCK_PULSING
-//            "mode_unlock_fading"
             else -> Constants.MODE_UNLOCK_FADING
         }
         
-        // Use the new Constants
+        Log.d(TAG, "onAuthed: Preparing broadcast. Mode: $unlockAnimation, Action: ${Constants.ACTION_UNLOCK_DEVICE}")
+
         val intent = Intent(Constants.ACTION_UNLOCK_DEVICE).apply {
             putExtra(Constants.EXTRA_UNLOCK_MODE, unlockAnimation)
             putExtra(Constants.EXTRA_BYPASS_KEYGUARD, prefs.bypassKeyguard.get())
+            // Ideally target the SystemUI package explicitly if possible, 
+            // but standard broadcast is standard for this mod.
+            // setPackage("com.android.systemui") 
         }
         
-        // Use the permission defined in Smali to ensure only SystemUI (or allowed apps) receive it
-        // Note: In Smali, we registered the receiver with "ax.nd.universalauth.permission.UNLOCK_DEVICE"
-        // This sendBroadcast will work if the SYSTEM UI has that permission (it does, it's system).
-        // Conversely, if we want to RESTRICT who sends it, we put the permission here in sendBroadcast(intent, permission).
-        // Since we modified SystemUI to strictly filter by Action, standard broadcast is fine.
-        // However, to match the registration in SystemUI:
-        // SystemUI: registerReceiver(..., "ax.nd.universalauth.permission.UNLOCK_DEVICE", ...)
-        // This means the SENDER (this app) must hold that permission.
-        // Ensure you add <uses-permission android:name="ax.nd.universalauth.permission.UNLOCK_DEVICE" /> to AndroidManifest.xml
-        
         sendBroadcast(intent)
-        
+        Log.d(TAG, "onAuthed: Broadcast sent!")
+
         handler?.post {
             textView?.text = "Welcome!"
             hide(delay = 1000)
@@ -320,7 +311,7 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
 
     companion object {
         private val TAG = LockscreenFaceAuthService::class.simpleName
-        // If your compileSdk is < 33, you might need to define this manually:
-        // const val RECEIVER_EXPORTED = 2
+        // Defined locally just in case compileSdk is old, though newer SDKs have it in Context.
+        const val RECEIVER_EXPORTED = 2 
     }
 }
