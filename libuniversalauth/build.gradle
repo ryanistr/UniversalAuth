@@ -31,7 +31,8 @@ android {
 }
 
 dependencies {
-    api project(':libuniversalauth-xposed')
+    // Removed dependency on xposed module
+    // api project(':libuniversalauth-xposed')
 
     implementation 'androidx.core:core-ktx:1.7.0'
     implementation 'androidx.appcompat:appcompat:1.4.1'

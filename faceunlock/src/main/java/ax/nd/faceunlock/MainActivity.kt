@@ -8,7 +8,6 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.flowWithLifecycle
@@ -18,22 +17,23 @@ import ax.nd.faceunlock.service.LockscreenFaceAuthService
 import ax.nd.faceunlock.service.RemoveFaceController
 import ax.nd.faceunlock.service.RemoveFaceControllerCallbacks
 import ax.nd.faceunlock.util.SharedUtil
-import ax.nd.universalauth.xposed.common.XposedConstants
 import com.afollestad.materialdialogs.MaterialDialog
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
     private lateinit var binding: ActivityMain2Binding
     private var removeFaceController: RemoveFaceController? = null
-    private val chooseLibsViewModel: ChooseLibsViewModel by viewModels()
-//    private var pickLibsLauncher: Map<String, ActivityResultLauncher<String>>? = null
-    private var pickApkLauncher: ActivityResultLauncher<String>? = null
+    
+    // Removed unused ViewModel and Launchers for downloading libs
     private var requestUnlockPermsLauncher: ActivityResultLauncher<String>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMain2Binding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Initialize Libs (bundled)
+        LibManager.init(this)
 
         binding.setupBtn.setOnClickListener {
             startActivity(Intent(this, SetupFaceIntroActivity::class.java))
@@ -42,28 +42,10 @@ class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
             startActivity(Intent(this, FaceAuthActivity::class.java))
         }
 
-        /*pickLibsLauncher = LibManager.requiredLibraries.associate {
-            it.name to registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-                if(uri != null)
-                    chooseLibsViewModel.addLib(this, it, uri)
-            }
-        }*/
-
-        pickApkLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if(uri != null)
-                chooseLibsViewModel.downloadLibs(this, uri)
-        }
-
         requestUnlockPermsLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
-        if(LibManager.librariesData.value.all { it.valid }) {
-            // All libs valid, perform permission checks
-            checkAndAskForPermissions()
-        } else {
-            // First setup libs
-            DownloadLibsDialog(this, chooseLibsViewModel).open()
-//            ChooseLibsDialog(this, chooseLibsViewModel).open()
-        }
+        // Directly check permissions
+        checkAndAskForPermissions()
 
         lifecycleScope.launch {
             // Update lib load error
@@ -73,10 +55,8 @@ class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
                     curErrorDialog?.cancel()
                     curErrorDialog = MaterialDialog(this@MainActivity).show {
                         title(text = "Fatal error")
-                        message(text = "Failed to load libraries, application will now crash!")
-                        positiveButton(text = "Ok :(") {
-                            throw error
-                        }
+                        message(text = "Failed to load bundled libraries.\n\nError: ${error.message}")
+                        positiveButton(text = "Ok :(") {}
                         cancelable(false)
                         cancelOnTouchOutside(false)
                     }
@@ -85,14 +65,11 @@ class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
         }
     }
 
-    // Called once all libs are valid
     fun checkAndAskForPermissions() {
-        // Request permission to unlock device if not yet granted
-        if(ContextCompat.checkSelfPermission(this, XposedConstants.PERMISSION_UNLOCK_DEVICE) != PackageManager.PERMISSION_GRANTED) {
-            requestUnlockPermsLauncher?.launch(XposedConstants.PERMISSION_UNLOCK_DEVICE)
+        if(ContextCompat.checkSelfPermission(this, Constants.PERMISSION_UNLOCK_DEVICE) != PackageManager.PERMISSION_GRANTED) {
+            requestUnlockPermsLauncher?.launch(Constants.PERMISSION_UNLOCK_DEVICE)
         }
 
-        // Request accessibility prefs
         if(!isAccessServiceEnabled(this, LockscreenFaceAuthService::class.java)) {
             MaterialDialog(this).show {
                 title(text = "Accessibility service not enabled")
@@ -107,7 +84,6 @@ class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
 
     override fun onResume() {
         super.onResume()
-
         updateButtons()
     }
 
@@ -141,15 +117,11 @@ class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
     private fun updateButtons() {
         val faceId = SharedUtil(this).getIntValueByKey(AppConstants.SHARED_KEY_FACE_ID)
         if(faceId > -1) {
-            // Face enrolled
             binding.setupBtn.isEnabled = false
             binding.authBtn.isEnabled = true
             binding.removeBtn.isEnabled = true
-            binding.removeBtn.setOnClickListener {
-                removeFace(faceId)
-            }
+            binding.removeBtn.setOnClickListener { removeFace(faceId) }
         } else {
-            // No face enrolled
             binding.setupBtn.isEnabled = true
             binding.authBtn.isEnabled = false
             binding.removeBtn.isEnabled = false
@@ -169,13 +141,5 @@ class MainActivity : AppCompatActivity(), RemoveFaceControllerCallbacks {
             Toast.makeText(this, "Failed to remove face: $message", Toast.LENGTH_LONG).show()
             releaseRemoveFaceController()
         }
-    }
-
-//    fun browseForFiles(lib: RequiredLib) {
-//        pickLibsLauncher?.get(lib.name)?.launch("*/*")
-//    }
-
-    fun browseForFiles() {
-        pickApkLauncher?.launch("*/*")
     }
 }

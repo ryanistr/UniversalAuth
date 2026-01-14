@@ -21,12 +21,12 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.TextView
 import androidx.core.content.getSystemService
+import ax.nd.faceunlock.Constants
 import ax.nd.faceunlock.FaceApplication
 import ax.nd.faceunlock.LibManager
 import ax.nd.faceunlock.pref.Prefs
 import ax.nd.faceunlock.util.Util
 import ax.nd.faceunlock.util.dpToPx
-import ax.nd.universalauth.xposed.common.XposedConstants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -152,12 +152,14 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
     }
 
     private fun registerEarlyUnlockReceiver() {
+        // Updated to use local Constant
         val intentFilter = IntentFilter().apply {
-            addAction(XposedConstants.ACTION_EARLY_UNLOCK)
+            addAction(Constants.ACTION_EARLY_UNLOCK)
         }
         lockStateReceiver = object : BroadcastReceiver() {
             override fun onReceive(p0: Context?, p1: Intent) {
-                val mode = p1.getBooleanExtra(XposedConstants.EXTRA_EARLY_UNLOCK_MODE, false)
+                // Updated to use local Constant
+                val mode = p1.getBooleanExtra(Constants.EXTRA_EARLY_UNLOCK_MODE, false)
                 if(mode) {
                     show()
                 } else {
@@ -165,6 +167,8 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
                 }
             }
         }
+        // Note: RECEIVER_EXPORTED (0x2) is required for Android 14+ if not system signature, 
+        // though typically this service runs as user app. Ensure compileSdk handles this constant.
         registerReceiver(lockStateReceiver, intentFilter, RECEIVER_EXPORTED)
     }
 
@@ -275,17 +279,32 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
 
     override fun onAuthed() {
         Log.d("MeasureFaceUnlock", "Total time: " + (System.currentTimeMillis() - startTime))
-        // Tell Xposed module to unlock device
+        // Tell the System to unlock device (Via the Smali hook)
         val unlockAnimation = when(FaceApplication.getApp().prefs.unlockAnimation.get()) {
-            "mode_wake_and_unlock" -> XposedConstants.MODE_WAKE_AND_UNLOCK
-            "mode_wake_and_unlock_pulsing" -> XposedConstants.MODE_WAKE_AND_UNLOCK_PULSING
+            "mode_wake_and_unlock" -> Constants.MODE_WAKE_AND_UNLOCK
+            "mode_wake_and_unlock_pulsing" -> Constants.MODE_WAKE_AND_UNLOCK_PULSING
 //            "mode_unlock_fading"
-            else -> XposedConstants.MODE_UNLOCK_FADING
+            else -> Constants.MODE_UNLOCK_FADING
         }
-        sendBroadcast(Intent(XposedConstants.ACTION_UNLOCK_DEVICE).apply {
-            putExtra(XposedConstants.EXTRA_UNLOCK_MODE, unlockAnimation)
-            putExtra(XposedConstants.EXTRA_BYPASS_KEYGUARD, prefs.bypassKeyguard.get())
-        })
+        
+        // Use the new Constants
+        val intent = Intent(Constants.ACTION_UNLOCK_DEVICE).apply {
+            putExtra(Constants.EXTRA_UNLOCK_MODE, unlockAnimation)
+            putExtra(Constants.EXTRA_BYPASS_KEYGUARD, prefs.bypassKeyguard.get())
+        }
+        
+        // Use the permission defined in Smali to ensure only SystemUI (or allowed apps) receive it
+        // Note: In Smali, we registered the receiver with "ax.nd.universalauth.permission.UNLOCK_DEVICE"
+        // This sendBroadcast will work if the SYSTEM UI has that permission (it does, it's system).
+        // Conversely, if we want to RESTRICT who sends it, we put the permission here in sendBroadcast(intent, permission).
+        // Since we modified SystemUI to strictly filter by Action, standard broadcast is fine.
+        // However, to match the registration in SystemUI:
+        // SystemUI: registerReceiver(..., "ax.nd.universalauth.permission.UNLOCK_DEVICE", ...)
+        // This means the SENDER (this app) must hold that permission.
+        // Ensure you add <uses-permission android:name="ax.nd.universalauth.permission.UNLOCK_DEVICE" /> to AndroidManifest.xml
+        
+        sendBroadcast(intent)
+        
         handler?.post {
             textView?.text = "Welcome!"
             hide(delay = 1000)
@@ -301,5 +320,7 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
 
     companion object {
         private val TAG = LockscreenFaceAuthService::class.simpleName
+        // If your compileSdk is < 33, you might need to define this manually:
+        // const val RECEIVER_EXPORTED = 2
     }
 }

@@ -9,7 +9,9 @@ task clean(type: Delete) {
     delete rootProject.buildDir
 }
 
-configure ([project(':faceunlock'), project(':universalauth-xposed')]) {
+// configure() block updated to only target the ':faceunlock' project.
+// The reference to ':universalauth-xposed' has been removed.
+configure(project(':faceunlock')) {
     afterEvaluate {
         android {
             defaultConfig {
