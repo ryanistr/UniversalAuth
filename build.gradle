@@ -1,8 +1,10 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
-    id 'com.android.application' version '8.3.1' apply false
-    id 'com.android.library' version '8.3.1' apply false
-    id 'org.jetbrains.kotlin.android' version '1.6.10' apply false
+    // CRITICAL: Updated AGP to 8.6.0 to support API 35 (Android 15) and fix D8 warnings
+    id 'com.android.application' version '8.6.0' apply false
+    id 'com.android.library' version '8.6.0' apply false
+    // Updated Kotlin to 1.9.24 for better compatibility with AGP 8.6.0
+    id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
 }
 
 task clean(type: Delete) {

@@ -16,7 +16,8 @@ class FaceAuthActivity : AppCompatActivity(), FaceAuthServiceCallbacks {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_face_auth)
-        prefs = FaceApplication.getApp().prefs
+        // Assert non-null because App and Prefs must exist when Activity is created
+        prefs = FaceApplication.getApp()!!.prefs!!
         controller = FaceAuthServiceController(this, prefs, this)
     }
 

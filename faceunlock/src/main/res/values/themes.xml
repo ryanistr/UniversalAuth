@@ -1,8 +1,8 @@
 <resources>
-  <style name="AppTheme.NoActionBar" >
-  <item name="windowActionBar">false</item>
-  <item name="windowNoTitle">true</item>
-</style>
-  <style name="AppTheme.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
-  <style name="AppTheme.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
+  <style name="FaceUnlockTheme.NoActionBar" parent="FaceUnlockTheme">
+    <item name="windowActionBar">false</item>
+    <item name="windowNoTitle">true</item>
+  </style>
+  <style name="FaceUnlockTheme.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
+  <style name="FaceUnlockTheme.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
 </resources>

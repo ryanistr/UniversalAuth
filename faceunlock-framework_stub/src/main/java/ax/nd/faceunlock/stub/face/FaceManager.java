@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,7 @@
 
 package ax.nd.faceunlock.stub.face;
 
-import static ax.nd.faceunlock.stub.biometrics.BiometricFaceConstants.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED;
+import static ax.nd.faceunlock.stub.biometrics.BiometricConstants.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED;
 import static ax.nd.faceunlock.stub.biometrics.BiometricFaceConstants.FACE_ERROR_CANCELED;
 import static ax.nd.faceunlock.stub.biometrics.BiometricFaceConstants.FACE_ERROR_HW_NOT_PRESENT;
 import static ax.nd.faceunlock.stub.biometrics.BiometricFaceConstants.FACE_ERROR_HW_UNAVAILABLE;
@@ -85,12 +85,12 @@ public class FaceManager {
      * provided cancel object.
      *
      * @param hardwareAuthToken a unique token provided by a recent creation or
-     *                          verification of device credentials (e.g. pin, pattern or password).
+     * verification of device credentials (e.g. pin, pattern or password).
      * @param cancel            an object that can be used to cancel enrollment
      * @param userId            the user to whom this face will belong to
      * @param callback          an object to receive enrollment events
      * @param previewSurface    optional camera preview surface for a single-camera device.
-     *                          Must be null if not used.
+     * Must be null if not used.
      * @param debugConsent      a feature flag that the user has consented to debug.
      * @hide
      */
@@ -186,11 +186,11 @@ public class FaceManager {
          * @param cell        The cell captured during this frame of enrollment, if any.
          * @param stage       An integer representing the current stage of enrollment.
          * @param pan         The horizontal pan of the detected face. Values in the range [-1, 1]
-         *                    indicate a good capture.
+         * indicate a good capture.
          * @param tilt        The vertical tilt of the detected face. Values in the range [-1, 1]
-         *                    indicate a good capture.
+         * indicate a good capture.
          * @param distance    The distance of the detected face from the device. Values in
-         *                    the range [-1, 1] indicate a good capture.
+         * the range [-1, 1] indicate a good capture.
          */
         public void onEnrollmentFrame(
                 int helpCode,
@@ -213,3 +213,4 @@ public class FaceManager {
         }
     }
 }
+// Manual Modifications Required: None.

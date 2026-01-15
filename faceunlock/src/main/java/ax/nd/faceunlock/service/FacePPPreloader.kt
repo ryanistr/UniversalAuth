@@ -43,7 +43,8 @@ class FacePPPreloader(private val context: Context) {
     }
 
     private fun shouldPreload(): Boolean {
-        return FaceApplication.getApp().prefs.preloadFace.get()
+        // Use safe calls ?. for nullable app and prefs
+        return FaceApplication.getApp()?.prefs?.preloadFace?.get() == true
                 && LibManager.libsLoaded.get()
                 && Util.isFaceUnlockEnrolled(context)
     }
@@ -92,3 +93,4 @@ class PreloadedInstance(val impl: FacePPImpl, looper: Looper) {
         const val MSG_CHALLENGE_TIMEOUT = 100
     }
 }
+// Manual Modifications Required: None.

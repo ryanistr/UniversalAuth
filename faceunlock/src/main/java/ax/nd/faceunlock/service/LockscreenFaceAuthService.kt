@@ -71,7 +71,8 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         serviceJob = Job()
         serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
-        prefs = FaceApplication.getApp().prefs
+        // Assert non-null because App and Prefs must exist when Service is created
+        prefs = FaceApplication.getApp()!!.prefs!!
 
         controller = FaceAuthServiceController(this, prefs, this)
 
@@ -277,17 +278,26 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         Log.d("MeasureFaceUnlock", "Total time: " + (System.currentTimeMillis() - startTime))
         
         // --- UPDATED LOGIC ---
-        val unlockAnimation = when(FaceApplication.getApp().prefs.unlockAnimation.get()) {
-            "mode_wake_and_unlock" -> Constants.MODE_WAKE_AND_UNLOCK
-            "mode_wake_and_unlock_pulsing" -> Constants.MODE_WAKE_AND_UNLOCK_PULSING
-            else -> Constants.MODE_UNLOCK_FADING
+        val shouldBypass = prefs.bypassKeyguard.get()
+
+        // If bypass is disabled (shouldBypass = false), we must send MODE_NONE (0).
+        // Sending an animation mode like FADING or WAKE_AND_UNLOCK forces the SystemUI to 
+        // transition to home immediately, even if we pass the bypass boolean as false.
+        val unlockAnimation = if (shouldBypass) {
+            when(FaceApplication.getApp()?.prefs?.unlockAnimation?.get()) {
+                "mode_wake_and_unlock" -> Constants.MODE_WAKE_AND_UNLOCK
+                "mode_wake_and_unlock_pulsing" -> Constants.MODE_WAKE_AND_UNLOCK_PULSING
+                else -> Constants.MODE_UNLOCK_FADING
+            }
+        } else {
+            Constants.MODE_NONE
         }
         
-        Log.d(TAG, "onAuthed: Preparing broadcast. Mode: $unlockAnimation, Action: ${Constants.ACTION_UNLOCK_DEVICE}")
+        Log.d(TAG, "onAuthed: Preparing broadcast. Mode: $unlockAnimation, Action: ${Constants.ACTION_UNLOCK_DEVICE}, Bypass: $shouldBypass")
 
         val intent = Intent(Constants.ACTION_UNLOCK_DEVICE).apply {
             putExtra(Constants.EXTRA_UNLOCK_MODE, unlockAnimation)
-            putExtra(Constants.EXTRA_BYPASS_KEYGUARD, prefs.bypassKeyguard.get())
+            putExtra(Constants.EXTRA_BYPASS_KEYGUARD, shouldBypass)
             // Ideally target the SystemUI package explicitly if possible, 
             // but standard broadcast is standard for this mod.
             // setPackage("com.android.systemui") 
