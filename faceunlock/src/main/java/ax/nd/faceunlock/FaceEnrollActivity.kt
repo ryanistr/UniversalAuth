@@ -20,6 +20,7 @@ import android.os.RemoteException
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -37,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -75,7 +77,7 @@ class FaceEnrollActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_ENROLL_SUCCESS = "extra_enroll_success"
-        private val TAG = "FaceEnrollActivity" // Simplified tag for filtering
+        private val TAG = "FaceEnrollActivity"
     }
 
     private var mToken: ByteArray? = null
@@ -163,7 +165,6 @@ class FaceEnrollActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Log.d(TAG, "onPause")
-        // Release resources in onPause to ensure camera is freed immediately when backgrounded
         releaseResources()
     }
     
@@ -196,16 +197,12 @@ class FaceEnrollActivity : ComponentActivity() {
 
     private fun releaseResources() {
         Log.d(TAG, "releaseResources")
-        // Important: Stop the controller logic BEFORE setting the surface holder to null.
-        // This prevents the controller from trying to use a null surface or leaving the camera in a bad state.
         val cameraService = mCameraEnrollService
         if (cameraService != null) {
             Log.d(TAG, "Stopping camera service and clearing surface holder")
             cameraService.stop(mCameraCallback)
             cameraService.setSurfaceHolder(null)
             mCameraEnrollService = null
-        } else {
-            Log.d(TAG, "mCameraEnrollService was null during releaseResources")
         }
         
         if (isServiceBound) {
@@ -266,39 +263,48 @@ class FaceEnrollActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.size(300.dp)
                     ) {
-                        // The Camera Preview
-                        AndroidView(
-                            factory = { ctx ->
-                                SurfaceView(ctx).apply {
-                                    clipToOutline = true 
-                                    holder.addCallback(object : SurfaceHolder.Callback {
-                                        override fun surfaceCreated(holder: SurfaceHolder) {
-                                            Log.d(TAG, "surfaceCreated")
-                                            // Ensure service is ready
-                                            if (mCameraEnrollService == null) {
-                                                Log.d(TAG, "surfaceCreated: mCameraEnrollService was null, re-instantiating")
-                                                mCameraEnrollService = CameraFaceEnrollController.getInstance()
-                                            }
-                                            Log.d(TAG, "surfaceCreated: setting holder and starting camera")
-                                            mCameraEnrollService?.setSurfaceHolder(holder)
-                                            mCameraEnrollService?.start(mCameraCallback, 15000)
-                                        }
-
-                                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                                            Log.d(TAG, "surfaceChanged: $width x $height")
-                                        }
-                                        
-                                        override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                            Log.d(TAG, "surfaceDestroyed")
-                                            // Safe to do nothing here as we rely on releaseResources called via onPause
-                                        }
-                                    })
-                                }
-                            },
+                        // The Camera Preview Container (Mask)
+                        // The parent Box clips the overflow
+                        Box(
                             modifier = Modifier
                                 .size(260.dp)
                                 .clip(CircleShape)
-                        )
+                                .background(Color.Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // The Camera Preview Surface
+                            // We use requiredSize to FORCE the size to be 347dp tall (3:4 aspect ratio)
+                            // regardless of the parent's 260dp constraint. This ensures center-crop.
+                            AndroidView(
+                                factory = { ctx ->
+                                    SurfaceView(ctx).apply {
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT, 
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        holder.addCallback(object : SurfaceHolder.Callback {
+                                            override fun surfaceCreated(holder: SurfaceHolder) {
+                                                Log.d(TAG, "surfaceCreated")
+                                                if (mCameraEnrollService == null) {
+                                                    mCameraEnrollService = CameraFaceEnrollController.getInstance()
+                                                }
+                                                mCameraEnrollService?.setSurfaceHolder(holder)
+                                                mCameraEnrollService?.start(mCameraCallback, 15000)
+                                            }
+
+                                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                                                Log.d(TAG, "surfaceChanged: $width x $height")
+                                            }
+                                            
+                                            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                                Log.d(TAG, "surfaceDestroyed")
+                                            }
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.requiredSize(width = 260.dp, height = 347.dp)
+                            )
+                        }
 
                         // Progress Ring Overlay
                         Canvas(modifier = Modifier.size(290.dp)) {
@@ -375,8 +381,6 @@ class FaceEnrollActivity : ComponentActivity() {
         override fun setDetectArea(size: Camera.Size?) {}
 
         override fun handleSaveFeatureResult(error: Int) {
-            // Uncomment if too verbose
-            // Log.d(TAG, "handleSaveFeatureResult: $error") 
             runOnUiThread {
                 var msg = ""
                 var isError = false
@@ -464,7 +468,6 @@ class FaceEnrollActivity : ComponentActivity() {
                 override fun onAuthenticated(faceId: Int, userId: Int, token: ByteArray?) {}
                 
                 override fun onError(error: Int, vendorCode: Int) {
-                    Log.e(TAG, "Service onError: $error")
                     val message = FaceManager.getErrorString(this@FaceEnrollActivity, error, vendorCode)
                     runOnUiThread {
                          enrollmentMessageState = message.toString()
@@ -494,7 +497,6 @@ class FaceEnrollActivity : ComponentActivity() {
                 authBinder.setCallback(authCallback)
                 if (!enrollCalled) {
                     enrollCalled = true
-                    Log.d(TAG, "Calling authBinder.enroll")
                     authBinder.enroll(mToken ?: byteArrayOf(0), 20, intArrayOf())
                 }
             } catch (e: RemoteException) {
