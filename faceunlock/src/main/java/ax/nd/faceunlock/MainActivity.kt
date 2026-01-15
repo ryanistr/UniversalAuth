@@ -3,6 +3,7 @@ package ax.nd.faceunlock
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
         monitorLibLoadErrors()
         // Initial check
         refreshEnrollmentState()
+        checkAndStartService()
     }
 
     private fun monitorLibLoadErrors() {
@@ -449,26 +451,26 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
             // Permission logic
         }
 
-        if (!isAccessServiceEnabled(this, LockscreenFaceAuthService::class.java)) {
-            MaterialDialog(this).show {
-                title(text = "Accessibility service required")
-                message(text = "Face unlock needs accessibility access to interact with your lock screen.")
+        // Overlay permission (SYSTEM_ALERT_WINDOW)
+        if (!Settings.canDrawOverlays(this)) {
+             MaterialDialog(this).show {
+                title(text = "Overlay permission required")
+                message(text = "Face unlock needs permission to display over the lockscreen.")
                 positiveButton(text = "Enable") {
-                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
                     startActivity(intent)
                 }
             }
         }
     }
-
-    private fun isAccessServiceEnabled(context: Context, accessibilityServiceClass: Class<*>): Boolean {
-        val prefString = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-        val serviceName = accessibilityServiceClass.canonicalName
-        return prefString?.split(":")?.filter { it.isNotBlank() }?.any {
-            val slashIndex = it.indexOf('/')
-            val possibleServiceName = it.substring(slashIndex + 1)
-            possibleServiceName == serviceName || (it.substring(0, slashIndex) + possibleServiceName) == serviceName
-        } == true
+    
+    private fun checkAndStartService() {
+        val intent = Intent(this, LockscreenFaceAuthService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
     }
 
     private fun removeFace(faceId: Int) {

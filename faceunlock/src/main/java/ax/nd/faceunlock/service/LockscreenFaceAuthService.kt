@@ -1,16 +1,22 @@
 package ax.nd.faceunlock.service
 
-import android.accessibilityservice.AccessibilityService
 import android.animation.Animator
 import android.app.KeyguardManager
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
@@ -18,11 +24,11 @@ import android.view.Display
 import android.view.Gravity
 import android.view.ViewPropertyAnimator
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityEvent
 import android.widget.TextView
 import ax.nd.faceunlock.Constants
 import ax.nd.faceunlock.FaceApplication
 import ax.nd.faceunlock.LibManager
+import ax.nd.faceunlock.R
 import ax.nd.faceunlock.pref.Prefs
 import ax.nd.faceunlock.util.Util
 import ax.nd.faceunlock.util.dpToPx
@@ -31,13 +37,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbacks {
+class LockscreenFaceAuthService : Service(), FaceAuthServiceCallbacks {
     private var windowManager: WindowManager? = null
     private var textView: TextView? = null
+    
+    // Use TYPE_APPLICATION_OVERLAY for Android O+
+    private val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    } else {
+        @Suppress("DEPRECATION")
+        WindowManager.LayoutParams.TYPE_PHONE
+    }
+
     private val params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        layoutType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
@@ -64,8 +79,14 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
     private var showStatusText = true
     private var booted = false
 
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
     override fun onCreate() {
         super.onCreate()
+        // Must start foreground immediately to avoid "Starting FGS without a type" crash
+        startForegroundSelf()
 
         // Coroutine env
         serviceJob = Job()
@@ -98,6 +119,55 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
             prefs.showStatusText.asFlow().collect { showStatusText ->
                 this@LockscreenFaceAuthService.showStatusText = showStatusText
             }
+        }
+        
+        // Initial check in case we were started while locked
+        doubleCheckLockscreenState()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Ensure we are in foreground to prevent kill
+        startForegroundSelf()
+        doubleCheckLockscreenState()
+        return START_STICKY
+    }
+
+    private fun startForegroundSelf() {
+        val channelId = "face_unlock_service"
+        val channelName = "Face Unlock Service"
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val chan = NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_MIN)
+            chan.lockscreenVisibility = Notification.VISIBILITY_SECRET
+            chan.setShowBadge(false)
+            val service = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            service.createNotificationChannel(chan)
+        }
+
+        val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+
+        val notification = notificationBuilder
+            .setSmallIcon(R.mipmap.ic_launcher_face_unlock) 
+            .setContentTitle("Face Unlock Active")
+            .setContentText("Listening for screen events")
+            .setVisibility(Notification.VISIBILITY_SECRET)
+            .build()
+
+        // SDK 34 (Android 14) requires specifying the type
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Good practice to set it if supported, though typically not strictly enforced as crash before 34
+            // 0 is default "none" in older SDKs but Q accepts bitmask. 
+            // We'll stick to standard call for < 34 to match previous behavior or simple start.
+             startForeground(1, notification)
+        } else {
+            startForeground(1, notification)
         }
     }
 
@@ -172,16 +242,6 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         lockStateReceiver?.let {
             unregisterReceiver(it)
             lockStateReceiver = null
-        }
-    }
-
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-
-        if(!LibManager.libsLoaded.get()) {
-            Log.w(TAG, "Libs not loaded, disabling self...")
-            disableSelf()
-            return
         }
     }
 
@@ -268,21 +328,11 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         }
     }
 
-    override fun onAccessibilityEvent(p0: AccessibilityEvent?) {
-    }
-
-    override fun onInterrupt() {
-    }
-
     override fun onAuthed() {
         Log.d("MeasureFaceUnlock", "Total time: " + (System.currentTimeMillis() - startTime))
         
-        // --- UPDATED LOGIC ---
         val shouldBypass = prefs.bypassKeyguard.get()
 
-        // If bypass is disabled (shouldBypass = false), we must send MODE_NONE (0).
-        // Sending an animation mode like FADING or WAKE_AND_UNLOCK forces the SystemUI to 
-        // transition to home immediately, even if we pass the bypass boolean as false.
         val unlockAnimation = if (shouldBypass) {
             when(FaceApplication.getApp()?.prefs?.unlockAnimation?.get()) {
                 "mode_wake_and_unlock" -> Constants.MODE_WAKE_AND_UNLOCK
@@ -298,9 +348,6 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
         val intent = Intent(Constants.ACTION_UNLOCK_DEVICE).apply {
             putExtra(Constants.EXTRA_UNLOCK_MODE, unlockAnimation)
             putExtra(Constants.EXTRA_BYPASS_KEYGUARD, shouldBypass)
-            // Ideally target the SystemUI package explicitly if possible, 
-            // but standard broadcast is standard for this mod.
-            // setPackage("com.android.systemui") 
         }
         
         sendBroadcast(intent)
@@ -321,7 +368,6 @@ class LockscreenFaceAuthService : AccessibilityService(), FaceAuthServiceCallbac
 
     companion object {
         private val TAG = LockscreenFaceAuthService::class.simpleName
-        // Defined locally just in case compileSdk is old, though newer SDKs have it in Context.
         const val RECEIVER_EXPORTED = 2 
     }
 }
