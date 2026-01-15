@@ -8,7 +8,6 @@ import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,9 +16,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,10 +29,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -40,39 +50,47 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import ax.nd.faceunlock.pref.Prefs
 import ax.nd.faceunlock.service.LockscreenFaceAuthService
 import ax.nd.faceunlock.service.RemoveFaceController
 import ax.nd.faceunlock.service.RemoveFaceControllerCallbacks
 import ax.nd.faceunlock.util.SharedUtil
 import com.afollestad.materialdialogs.MaterialDialog
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
     private var removeFaceController: RemoveFaceController? = null
+    
+    // Single source of truth for enrollment state
+    private val isFaceEnrolledFlow = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -82,11 +100,39 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
         LibManager.init(this)
 
         setContent {
-            MaterialTheme(
-                colorScheme = MaterialTheme.colorScheme.copy(
-                    primary = Color(0xFF6750A4), 
-                    onPrimary = Color.White
+            val isDark = isSystemInDarkTheme()
+            val colorScheme = if (isDark) {
+                darkColorScheme(
+                    primary = Color(0xFFD0BCFF),
+                    onPrimary = Color(0xFF381E72),
+                    primaryContainer = Color(0xFF4F378B),
+                    onPrimaryContainer = Color(0xFFEADDFF),
+                    secondary = Color(0xFFCCC2DC),
+                    onSecondary = Color(0xFF332D41),
+                    secondaryContainer = Color(0xFF4A4458),
+                    onSecondaryContainer = Color(0xFFE8DEF8),
+                    tertiary = Color(0xFFEFB8C8),
+                    onTertiary = Color(0xFF492532),
+                    tertiaryContainer = Color(0xFF633B48),
+                    onTertiaryContainer = Color(0xFFFFD8E4),
+                    background = Color(0xFF1C1B1F),
+                    surface = Color(0xFF1C1B1F),
+                    onSurface = Color(0xFFE6E1E5)
                 )
+            } else {
+                lightColorScheme(
+                    primary = Color(0xFF6750A4),
+                    onPrimary = Color.White,
+                    primaryContainer = Color(0xFFEADDFF),
+                    onPrimaryContainer = Color(0xFF21005D),
+                    background = Color(0xFFFFFBFE),
+                    surface = Color(0xFFFFFBFE),
+                    onSurface = Color(0xFF1C1B1F)
+                )
+            }
+
+            MaterialTheme(
+                colorScheme = colorScheme
             ) {
                 MainScreen()
             }
@@ -94,6 +140,8 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
 
         checkAndAskForPermissions()
         monitorLibLoadErrors()
+        // Initial check
+        refreshEnrollmentState()
     }
 
     private fun monitorLibLoadErrors() {
@@ -118,19 +166,19 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
     @Composable
     fun MainScreen() {
         val context = LocalContext.current
-        var faceEnrolled by remember { mutableStateOf(false) }
-
-        // State initialization
-        LaunchedEffect(Unit) {
-            updateEnrollmentState { faceEnrolled = it }
-        }
+        val prefs = remember { Prefs(context) }
+        
+        // Observe the flow instead of local state
+        val faceEnrolled by isFaceEnrolledFlow.collectAsState()
+        
+        val scrollState = rememberScrollState()
 
         // OnResume effect to refresh state
         val lifecycleOwner = LocalLifecycleOwner.current
         LaunchedEffect(lifecycleOwner) {
             lifecycleOwner.lifecycle.currentStateFlow.collect {
                 if (it == Lifecycle.State.RESUMED) {
-                    updateEnrollmentState { enrolled -> faceEnrolled = enrolled }
+                    refreshEnrollmentState()
                 }
             }
         }
@@ -162,7 +210,11 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                     title = { },
                     navigationIcon = {
                         IconButton(onClick = { finish() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -180,7 +232,8 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 24.dp)
+                        .verticalScroll(scrollState),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // Header Section
@@ -234,7 +287,9 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                         ) {
                             Button(
                                 onClick = { startActivity(Intent(context, SetupFaceIntroActivity::class.java)) },
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
                                 enabled = !faceEnrolled,
                                 shape = RoundedCornerShape(16.dp)
                             ) {
@@ -243,7 +298,9 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
 
                             Button(
                                 onClick = { startActivity(Intent(context, FaceAuthActivity::class.java)) },
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
                                 enabled = faceEnrolled,
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(
@@ -260,7 +317,9 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                                         val faceId = SharedUtil(context).getIntValueByKey(AppConstants.SHARED_KEY_FACE_ID)
                                         removeFace(faceId)
                                     },
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.errorContainer,
                                         contentColor = MaterialTheme.colorScheme.onErrorContainer
@@ -272,8 +331,141 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // Settings Section
+                    Text(
+                        text = "Options",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp, start = 8.dp),
+                        textAlign = TextAlign.Start
+                    )
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                alpha = cardAlpha.value
+                                translationY = cardOffset.value
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                        ),
+                        shape = RoundedCornerShape(28.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        ) {
+                            SettingsList(prefs)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
             }
+        }
+    }
+
+    @Composable
+    fun SettingsList(prefs: Prefs) {
+        val preloadFace by prefs.preloadFace.asFlow().collectAsState(initial = prefs.preloadFace.get())
+        val earlyUnlockHook by prefs.earlyUnlockHook.asFlow().collectAsState(initial = prefs.earlyUnlockHook.get())
+        val requirePinOnBoot by prefs.requirePinOnBoot.asFlow().collectAsState(initial = prefs.requirePinOnBoot.get())
+        val bypassKeyguard by prefs.bypassKeyguard.asFlow().collectAsState(initial = prefs.bypassKeyguard.get())
+        val showStatusText by prefs.showStatusText.asFlow().collectAsState(initial = prefs.showStatusText.get())
+
+        SettingsSwitchItem(
+            title = "Stay loaded in background",
+            description = "Keeps the program loaded in the background. Uses slightly more RAM (~20 MB) but speeds up recognition by 30%.",
+            icon = Icons.Filled.Bolt,
+            checked = preloadFace,
+            onCheckedChange = { prefs.preloadFace.set(it) }
+        )
+
+        SettingsSwitchItem(
+            title = "Even faster face unlock",
+            description = "Start the face unlock algorithm at the same time as the lockscreen is shown. May not work on all devices yet.",
+            icon = Icons.Filled.FlashOn,
+            checked = earlyUnlockHook,
+            onCheckedChange = { prefs.earlyUnlockHook.set(it) }
+        )
+
+        SettingsSwitchItem(
+            title = "Disable for first unlock",
+            description = "Do not allow using face unlock until the phone is unlocked at least once after boot. Only enable this if your device does not already automatically enforce this.",
+            icon = Icons.Filled.Lock,
+            checked = requirePinOnBoot,
+            onCheckedChange = { prefs.requirePinOnBoot.set(it) }
+        )
+
+        SettingsSwitchItem(
+            title = "Auto dismiss lockscreen",
+            description = "Automatically dismiss lockscreen once authenticated with face",
+            icon = Icons.Filled.LockOpen,
+            checked = bypassKeyguard,
+            onCheckedChange = { prefs.bypassKeyguard.set(it) }
+        )
+
+        SettingsSwitchItem(
+            title = "Show status text",
+            description = "Show face unlock status on lockscreen",
+            icon = Icons.Filled.Visibility,
+            checked = showStatusText,
+            onCheckedChange = { prefs.showStatusText.set(it) }
+        )
+    }
+
+    @Composable
+    fun SettingsSwitchItem(
+        title: String,
+        description: String,
+        icon: ImageVector,
+        checked: Boolean,
+        onCheckedChange: (Boolean) -> Unit
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+
+            Spacer(modifier = Modifier.width(20.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Justify
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange
+            )
         }
     }
 
@@ -283,6 +475,7 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
                     .graphicsLayer {
                         renderEffect = RenderEffect
                             .createBlurEffect(
@@ -291,7 +484,6 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                             .asComposeRenderEffect()
                     }
             ) {
-                // Place your abstract shapes or background image here to be blurred
                 Box(
                     modifier = Modifier
                         .size(300.dp)
@@ -307,7 +499,6 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                 )
             }
         } else {
-            // Fallback for older APIs
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -316,14 +507,14 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
         }
     }
 
-    private fun updateEnrollmentState(onResult: (Boolean) -> Unit) {
+    private fun refreshEnrollmentState() {
         val faceId = SharedUtil(this).getIntValueByKey(AppConstants.SHARED_KEY_FACE_ID)
-        onResult(faceId > -1)
+        isFaceEnrolledFlow.value = faceId > -1
     }
 
     private fun checkAndAskForPermissions() {
         if (ContextCompat.checkSelfPermission(this, Constants.PERMISSION_UNLOCK_DEVICE) != PackageManager.PERMISSION_GRANTED) {
-             // Permission logic
+            // Permission logic
         }
 
         if (!isAccessServiceEnabled(this, LockscreenFaceAuthService::class.java)) {
@@ -367,6 +558,13 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
 
     override fun onRemove() {
         runOnUiThread {
+            // 1. Clear the stored Face ID
+            SharedUtil(this).saveIntValue(AppConstants.SHARED_KEY_FACE_ID, -1)
+            
+            // 2. Update the UI state source of truth
+            isFaceEnrolledFlow.value = false
+            
+            // 3. Show feedback
             Toast.makeText(this, "Face model removed", Toast.LENGTH_SHORT).show()
         }
     }

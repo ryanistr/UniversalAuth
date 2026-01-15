@@ -23,7 +23,6 @@ find the method
 
 replace the whole method to
 ```
-
 .method public registerCallbacks()V
     .registers 12
     .annotation build Lcom/android/internal/annotations/VisibleForTesting;
