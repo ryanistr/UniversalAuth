@@ -3,8 +3,6 @@ package ax.nd.faceunlock
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -26,20 +24,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,6 +47,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,7 +58,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -100,9 +93,14 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
         LibManager.init(this)
 
         setContent {
+            val context = LocalContext.current
             val isDark = isSystemInDarkTheme()
-            val colorScheme = if (isDark) {
-                darkColorScheme(
+            val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+            val colorScheme = when {
+                dynamicColor && isDark -> dynamicDarkColorScheme(context)
+                dynamicColor && !isDark -> dynamicLightColorScheme(context)
+                isDark -> darkColorScheme(
                     primary = Color(0xFFD0BCFF),
                     onPrimary = Color(0xFF381E72),
                     primaryContainer = Color(0xFF4F378B),
@@ -119,8 +117,7 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
                     surface = Color(0xFF1C1B1F),
                     onSurface = Color(0xFFE6E1E5)
                 )
-            } else {
-                lightColorScheme(
+                else -> lightColorScheme(
                     primary = Color(0xFF6750A4),
                     onPrimary = Color.White,
                     primaryContainer = Color(0xFFEADDFF),
@@ -225,8 +222,8 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
             containerColor = Color.Transparent
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
-                // Liquid Background with Blur
-                LiquidBackground()
+                // Background
+                MaterialYouBackground()
 
                 Column(
                     modifier = Modifier
@@ -372,43 +369,7 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
 
     @Composable
     fun SettingsList(prefs: Prefs) {
-        val preloadFace by prefs.preloadFace.asFlow().collectAsState(initial = prefs.preloadFace.get())
-        val earlyUnlockHook by prefs.earlyUnlockHook.asFlow().collectAsState(initial = prefs.earlyUnlockHook.get())
-        val requirePinOnBoot by prefs.requirePinOnBoot.asFlow().collectAsState(initial = prefs.requirePinOnBoot.get())
-        val bypassKeyguard by prefs.bypassKeyguard.asFlow().collectAsState(initial = prefs.bypassKeyguard.get())
         val showStatusText by prefs.showStatusText.asFlow().collectAsState(initial = prefs.showStatusText.get())
-
-        SettingsSwitchItem(
-            title = "Stay loaded in background",
-            description = "Keeps the program loaded in the background. Uses slightly more RAM (~20 MB) but speeds up recognition by 30%.",
-            icon = Icons.Filled.Bolt,
-            checked = preloadFace,
-            onCheckedChange = { prefs.preloadFace.set(it) }
-        )
-
-        SettingsSwitchItem(
-            title = "Even faster face unlock",
-            description = "Start the face unlock algorithm at the same time as the lockscreen is shown. May not work on all devices yet.",
-            icon = Icons.Filled.FlashOn,
-            checked = earlyUnlockHook,
-            onCheckedChange = { prefs.earlyUnlockHook.set(it) }
-        )
-
-        SettingsSwitchItem(
-            title = "Disable for first unlock",
-            description = "Do not allow using face unlock until the phone is unlocked at least once after boot. Only enable this if your device does not already automatically enforce this.",
-            icon = Icons.Filled.Lock,
-            checked = requirePinOnBoot,
-            onCheckedChange = { prefs.requirePinOnBoot.set(it) }
-        )
-
-        SettingsSwitchItem(
-            title = "Auto dismiss lockscreen",
-            description = "Automatically dismiss lockscreen once authenticated with face",
-            icon = Icons.Filled.LockOpen,
-            checked = bypassKeyguard,
-            onCheckedChange = { prefs.bypassKeyguard.set(it) }
-        )
 
         SettingsSwitchItem(
             title = "Show status text",
@@ -470,41 +431,12 @@ class MainActivity : ComponentActivity(), RemoveFaceControllerCallbacks {
     }
 
     @Composable
-    fun LiquidBackground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .graphicsLayer {
-                        renderEffect = RenderEffect
-                            .createBlurEffect(
-                                50f, 50f, Shader.TileMode.MIRROR
-                            )
-                            .asComposeRenderEffect()
-                    }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(300.dp)
-                        .offset(x = (-50).dp, y = (-50).dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, shape = CircleShape)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(250.dp)
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 50.dp, y = 50.dp)
-                        .background(MaterialTheme.colorScheme.tertiaryContainer, shape = CircleShape)
-                )
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-            )
-        }
+    fun MaterialYouBackground() {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
     }
 
     private fun refreshEnrollmentState() {

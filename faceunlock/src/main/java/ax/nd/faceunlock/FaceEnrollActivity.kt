@@ -1,14 +1,11 @@
 package ax.nd.faceunlock
 
 import android.Manifest
-import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.hardware.Camera
 import android.os.Build
 import android.os.Bundle
@@ -36,7 +33,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -45,6 +41,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -56,9 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,6 +81,9 @@ class FaceEnrollActivity : ComponentActivity() {
     private var mCameraEnrollService: CameraFaceEnrollController? = null
     private var enrollCalled = false
     private var isServiceBound = false
+    
+    // Hold reference to surface to attach camera later if permission is granted delayed
+    private var mSurfaceHolder: SurfaceHolder? = null
 
     // State for Compose to observe
     private var enrollmentProgressState by mutableFloatStateOf(0f)
@@ -115,9 +114,14 @@ class FaceEnrollActivity : ComponentActivity() {
         }
 
         setContent {
+            val context = LocalContext.current
             val isDark = isSystemInDarkTheme()
-            val colorScheme = if (isDark) {
-                darkColorScheme(
+            val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+            val colorScheme = when {
+                dynamicColor && isDark -> dynamicDarkColorScheme(context)
+                dynamicColor && !isDark -> dynamicLightColorScheme(context)
+                isDark -> darkColorScheme(
                     primary = Color(0xFFD0BCFF),
                     onPrimary = Color(0xFF381E72),
                     primaryContainer = Color(0xFF4F378B),
@@ -134,8 +138,7 @@ class FaceEnrollActivity : ComponentActivity() {
                     surface = Color(0xFF1C1B1F),
                     onSurface = Color(0xFFE6E1E5)
                 )
-            } else {
-                lightColorScheme(
+                else -> lightColorScheme(
                     primary = Color(0xFF6750A4),
                     onPrimary = Color.White,
                     primaryContainer = Color(0xFFEADDFF),
@@ -184,6 +187,19 @@ class FaceEnrollActivity : ComponentActivity() {
             Log.d(TAG, "Getting new CameraFaceEnrollController instance")
             mCameraEnrollService = CameraFaceEnrollController.getInstance()
         }
+
+        // Fix: If surface was already created (but permission was missing), 
+        // we attach it now that we have permission.
+        if (mSurfaceHolder != null && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG, "Permission granted late - attaching existing SurfaceHolder")
+            try {
+                mCameraEnrollService?.setSurfaceHolder(mSurfaceHolder)
+                mCameraEnrollService?.start(mCameraCallback, 15000)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start camera in init", e)
+            }
+        }
+
         if (!isServiceBound) {
             try {
                 Log.d(TAG, "Binding FaceAuthService")
@@ -225,11 +241,15 @@ class FaceEnrollActivity : ComponentActivity() {
             label = "Progress"
         )
         
+        // Monet / Material You Theme Colors for Progress Bar
+        val progressColor = MaterialTheme.colorScheme.primary
+        val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+
         Scaffold(
             containerColor = Color.Transparent
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
-                LiquidBackground()
+                MaterialYouBackground()
 
                 Column(
                     modifier = Modifier
@@ -285,11 +305,19 @@ class FaceEnrollActivity : ComponentActivity() {
                                         holder.addCallback(object : SurfaceHolder.Callback {
                                             override fun surfaceCreated(holder: SurfaceHolder) {
                                                 Log.d(TAG, "surfaceCreated")
+                                                mSurfaceHolder = holder // Store the holder
+
                                                 if (mCameraEnrollService == null) {
                                                     mCameraEnrollService = CameraFaceEnrollController.getInstance()
                                                 }
-                                                mCameraEnrollService?.setSurfaceHolder(holder)
-                                                mCameraEnrollService?.start(mCameraCallback, 15000)
+                                                
+                                                // Only start camera if permission is already granted
+                                                if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                                    mCameraEnrollService?.setSurfaceHolder(holder)
+                                                    mCameraEnrollService?.start(mCameraCallback, 15000)
+                                                } else {
+                                                    Log.d(TAG, "surfaceCreated: Camera permission missing, waiting for callback")
+                                                }
                                             }
 
                                             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -298,6 +326,7 @@ class FaceEnrollActivity : ComponentActivity() {
                                             
                                             override fun surfaceDestroyed(holder: SurfaceHolder) {
                                                 Log.d(TAG, "surfaceDestroyed")
+                                                mSurfaceHolder = null
                                             }
                                         })
                                     }
@@ -309,12 +338,12 @@ class FaceEnrollActivity : ComponentActivity() {
                         // Progress Ring Overlay
                         Canvas(modifier = Modifier.size(290.dp)) {
                             drawCircle(
-                                color = Color.LightGray.copy(alpha = 0.3f),
+                                color = trackColor,
                                 style = Stroke(width = 12.dp.toPx())
                             )
                             
                             drawArc(
-                                color = Color(0xFFD0BCFF),
+                                color = progressColor,
                                 startAngle = -90f,
                                 sweepAngle = (animatedProgress / 100f) * 360f,
                                 useCenter = false,
@@ -339,41 +368,12 @@ class FaceEnrollActivity : ComponentActivity() {
     }
     
     @Composable
-    fun LiquidBackground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .graphicsLayer {
-                        renderEffect = RenderEffect
-                            .createBlurEffect(
-                                50f, 50f, Shader.TileMode.MIRROR
-                            )
-                            .asComposeRenderEffect()
-                    }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(300.dp)
-                        .offset(x = (-50).dp, y = (-50).dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, shape = CircleShape)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(250.dp)
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 50.dp, y = 50.dp)
-                        .background(MaterialTheme.colorScheme.tertiaryContainer, shape = CircleShape)
-                )
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-            )
-        }
+    fun MaterialYouBackground() {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
     }
 
     private val mCameraCallback = object : CameraFaceEnrollController.CameraCallback {
@@ -451,18 +451,18 @@ class FaceEnrollActivity : ComponentActivity() {
             val authBinder = IFaceService.Stub.asInterface(service)
             val authCallback = object : IFaceServiceReceiver.Stub() {
                 override fun onEnrollResult(faceId: Int, userId: Int, remaining: Int) {
-                     Log.d(TAG, "onEnrollResult: remaining=$remaining")
-                     if (remaining == 0) {
-                         runOnUiThread {
-                             enrollmentProgressState = 100f
-                             finishEnrollment(true)
-                         }
-                     } else {
-                         val progress = 100f - (remaining * 10f).coerceAtMost(40f) 
-                         if (progress > enrollmentProgressState) {
-                             enrollmentProgressState = progress
-                         }
-                     }
+                      Log.d(TAG, "onEnrollResult: remaining=$remaining")
+                      if (remaining == 0) {
+                          runOnUiThread {
+                              enrollmentProgressState = 100f
+                              finishEnrollment(true)
+                          }
+                      } else {
+                          val progress = 100f - (remaining * 10f).coerceAtMost(40f) 
+                          if (progress > enrollmentProgressState) {
+                              enrollmentProgressState = progress
+                          }
+                      }
                 }
 
                 override fun onAuthenticated(faceId: Int, userId: Int, token: ByteArray?) {}

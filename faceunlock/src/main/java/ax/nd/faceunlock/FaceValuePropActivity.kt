@@ -1,11 +1,9 @@
 package ax.nd.faceunlock
 
 import android.content.Intent
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity // Changed from FaceBaseActivity
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -18,20 +16,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Face // Safe Core Icon
-import androidx.compose.material.icons.filled.Lock // Safe Core Icon
-import androidx.compose.material.icons.filled.Refresh // Safe Core Icon
-import androidx.compose.material.icons.filled.Security // Safe Core Icon
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,28 +41,33 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-class FaceValuePropActivity : ComponentActivity() { // Extended ComponentActivity directly
+class FaceValuePropActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
+            val context = LocalContext.current
             val isDark = isSystemInDarkTheme()
-            val colorScheme = if (isDark) {
-                darkColorScheme(
+            val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+            val colorScheme = when {
+                dynamicColor && isDark -> dynamicDarkColorScheme(context)
+                dynamicColor && !isDark -> dynamicLightColorScheme(context)
+                isDark -> darkColorScheme(
                     primary = Color(0xFFD0BCFF),
                     onPrimary = Color(0xFF381E72),
                     primaryContainer = Color(0xFF4F378B),
@@ -83,8 +84,7 @@ class FaceValuePropActivity : ComponentActivity() { // Extended ComponentActivit
                     surface = Color(0xFF1C1B1F),
                     onSurface = Color(0xFFE6E1E5)
                 )
-            } else {
-                lightColorScheme(
+                else -> lightColorScheme(
                     primary = Color(0xFF6750A4),
                     onPrimary = Color.White,
                     primaryContainer = Color(0xFFEADDFF),
@@ -128,7 +128,7 @@ class FaceValuePropActivity : ComponentActivity() { // Extended ComponentActivit
             containerColor = Color.Transparent
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
-                LiquidBackground()
+                MaterialYouBackground()
 
                 Column(
                     modifier = Modifier
@@ -248,40 +248,11 @@ class FaceValuePropActivity : ComponentActivity() { // Extended ComponentActivit
     }
 
     @Composable
-    fun LiquidBackground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .graphicsLayer {
-                        renderEffect = RenderEffect
-                            .createBlurEffect(
-                                50f, 50f, Shader.TileMode.MIRROR
-                            )
-                            .asComposeRenderEffect()
-                    }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(300.dp)
-                        .offset(x = 200.dp, y = (-50).dp)
-                        .background(MaterialTheme.colorScheme.secondaryContainer, shape = CircleShape)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(250.dp)
-                        .align(Alignment.CenterStart)
-                        .offset(x = (-50).dp, y = 100.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, shape = CircleShape)
-                )
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-            )
-        }
+    fun MaterialYouBackground() {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
     }
 }

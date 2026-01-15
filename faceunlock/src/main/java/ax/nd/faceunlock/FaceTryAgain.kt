@@ -1,8 +1,6 @@
 package ax.nd.faceunlock
 
 import android.content.Intent
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -17,10 +15,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
@@ -32,13 +28,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,9 +55,14 @@ class FaceTryAgain : ComponentActivity() {
         }
 
         setContent {
+            val context = LocalContext.current
             val isDark = isSystemInDarkTheme()
-            val colorScheme = if (isDark) {
-                darkColorScheme(
+            val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+            val colorScheme = when {
+                dynamicColor && isDark -> dynamicDarkColorScheme(context)
+                dynamicColor && !isDark -> dynamicLightColorScheme(context)
+                isDark -> darkColorScheme(
                     primary = Color(0xFFD0BCFF),
                     onPrimary = Color(0xFF381E72),
                     primaryContainer = Color(0xFF4F378B),
@@ -79,8 +80,7 @@ class FaceTryAgain : ComponentActivity() {
                     onSurface = Color(0xFFE6E1E5),
                     error = Color(0xFFF2B8B5)
                 )
-            } else {
-                lightColorScheme(
+                else -> lightColorScheme(
                     primary = Color(0xFF6750A4),
                     onPrimary = Color.White,
                     primaryContainer = Color(0xFFEADDFF),
@@ -119,7 +119,7 @@ class FaceTryAgain : ComponentActivity() {
             containerColor = Color.Transparent
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
-                LiquidBackground()
+                MaterialYouBackground()
 
                 Column(
                     modifier = Modifier
@@ -202,40 +202,11 @@ class FaceTryAgain : ComponentActivity() {
     }
 
     @Composable
-    fun LiquidBackground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .graphicsLayer {
-                        renderEffect = RenderEffect
-                            .createBlurEffect(
-                                50f, 50f, Shader.TileMode.MIRROR
-                            )
-                            .asComposeRenderEffect()
-                    }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(300.dp)
-                        .offset(x = (-50).dp, y = (-50).dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, shape = CircleShape)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(250.dp)
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 50.dp, y = 50.dp)
-                        .background(MaterialTheme.colorScheme.tertiaryContainer, shape = CircleShape)
-                )
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-            )
-        }
+    fun MaterialYouBackground() {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
     }
 }
