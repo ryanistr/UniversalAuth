@@ -5,6 +5,9 @@ This project aims to bring a variety of custom authentication options to various
 1. Compile it yourself and patch system ui.
 2. Enroll face
 
+### Notes :
+I will not provide a precompiled apk.
+
 # Credits
 Thanks to:
 
